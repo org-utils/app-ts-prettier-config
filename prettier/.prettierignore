@@ -1,0 +1,87 @@
+# Dependencies
+node_modules/
+vendor/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+.out/
+.next/
+.nuxt/
+coverage/
+.nyc_output/
+
+# Logs
+*.log
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Package locks
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Compiled files
+*.min.js
+*.min.css
+*.bundle.js
+*.bundle.css
+*.d.ts
+*.d.ts.map
+
+# Generated
+*.gen.ts
+*.gen.js
+
+# Test snapshots
+**/__snapshots__/
+**/__fixtures__/
+
+# Media
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.ico
+*.svg
+*.mp4
+*.mp3
+
+# Archives
+*.zip
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+
+# Database
+*.db
+*.sqlite
+
+# Monorepo
+packages/*/dist/
+packages/*/node_modules/
+apps/*/dist/
+apps/*/node_modules/
+
+# Format config files
+!*.json
+!.*.json
+!tsconfig*.json
+!package.json
+!*.prettierrc
