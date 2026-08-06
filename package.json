@@ -1,5 +1,5 @@
 {
-  "name": "@app-ts-prettier-configs",
+  "name": "ts-prettier-config",
   "version": "0.0.1",
   "description": "Shared TypeScript and Prettier configurations for React, Node, and Next.js projects",
   "keywords": [
