@@ -1,32 +1,40 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
   "compilerOptions": {
-    // Language & Environment
+    /* Language & Environment */
     "target": "ES2022",
-    "lib": ["es2022"],
+    "lib": ["ES2022"],
     "moduleDetection": "force",
 
-    // Modules
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-
-    // Type Checking - Strict
+    /* Type Checking */
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
 
-    // Interop
+    /* Imports / Modules */
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "resolveJsonModule": true,
+
+    /* Interop */
     "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
 
-    // Emit - Build outputs
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
-    "incremental": true
+    /* Safety */
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+
+    /* Quality */
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noUncheckedSideEffectImports": true
   },
-  "exclude": ["node_modules", "dist", "build", "coverage"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "build",
+    "coverage"
+  ]
 }
