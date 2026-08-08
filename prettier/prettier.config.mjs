@@ -1,59 +1,66 @@
 /** @type {import('prettier').Config} */
 export default {
-  printWidth: 100,
-  tabWidth: 2,
-  useTabs: false,
+// ---------------------------------------------------------------------------
+// Formatting
+// ---------------------------------------------------------------------------
 
-  semi: true,
-  singleQuote: true,
-  jsxSingleQuote: false,
-  quoteProps: 'as-needed',
+printWidth: 100,
+tabWidth: 2,
+useTabs: false,
 
-  trailingComma: 'all',
-  bracketSpacing: true,
-  bracketSameLine: false,
-  arrowParens: 'always',
+// ---------------------------------------------------------------------------
+// JavaScript / TypeScript
+// ---------------------------------------------------------------------------
 
-  endOfLine: 'lf',
-  embeddedLanguageFormatting: 'auto',
+semi: true,
+singleQuote: true,
+jsxSingleQuote: false,
+quoteProps: 'as-needed',
 
-  plugins: ['@trivago/prettier-plugin-sort-imports'],
+// ---------------------------------------------------------------------------
+// Trailing commas / brackets
+// ---------------------------------------------------------------------------
 
-  importOrder: [
-    // React
-    '^react$',
-    '^react-dom$',
+trailingComma: 'all',
+bracketSpacing: true,
+bracketSameLine: false,
+arrowParens: 'always',
 
-    // Node.js built-in modules
-    '<BUILTIN_MODULES>',
+// ---------------------------------------------------------------------------
+// Files
+// ---------------------------------------------------------------------------
 
-    // Third-party packages
-    '^@?\\w',
+endOfLine: 'lf',
+embeddedLanguageFormatting: 'auto',
 
-    // Internal aliases
-    '^@/(.*)$',
-    '^~/(.*)$',
-    '^src/(.*)$',
+// ---------------------------------------------------------------------------
+// File-specific overrides
+// ---------------------------------------------------------------------------
 
-    // Side-effect imports
-    '^\\u0000',
+overrides: [
+{
+files: ['*.json', '*.jsonc'],
+options: {
+tabWidth: 2,
+singleQuote: false,
+},
+},
 
-    // Parent imports
-    '^\\.\\.(?!/?$)',
-    '^\\.\\./?$',
 
-    // Same-folder imports
-    '^\\./(?=.*/)(?!/?$)',
-    '^\\.(?!/?$)',
-    '^\\./?$',
+{
+  files: ['*.md', '*.mdx'],
+  options: {
+    proseWrap: 'preserve',
+  },
+},
 
-    // Styles
-    '\\.(css|scss|sass|less)$',
-  ],
+{
+  files: ['*.yml', '*.yaml'],
+  options: {
+    singleQuote: false,
+  },
+},
 
-  importOrderSeparation: true,
-  importOrderSortSpecifiers: true,
-  importOrderCaseInsensitive: true,
 
-  importOrderParserPlugins: ['typescript', 'jsx', 'decorators-legacy'],
+],
 };
