@@ -1,5 +1,11 @@
 # ts-prettier-config
 
+## 0.0.6
+
+### Patch Changes
+
+- 8d3aa84: updated cli
+
 ## 0.0.5
 
 ### Patch Changes
