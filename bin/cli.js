@@ -8,9 +8,14 @@ import {
   readFileSync,
   writeFileSync,
 } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawnSync } from 'node:child_process';
+import process from 'node:process';
+
+/* -------------------------------------------------------------------------- */
+/* Paths                                                                      */
+/* -------------------------------------------------------------------------- */
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -21,6 +26,10 @@ const CONFIG_ROOTS = {
   prettier: join(PACKAGE_ROOT, 'prettier'),
   eslint: join(PACKAGE_ROOT, 'eslint'),
 };
+
+/* -------------------------------------------------------------------------- */
+/* Available configuration files                                              */
+/* -------------------------------------------------------------------------- */
 
 const CONFIG_FILES = {
   typescript: {
@@ -48,6 +57,10 @@ const CONFIG_FILES = {
   },
 };
 
+/* -------------------------------------------------------------------------- */
+/* Dependencies                                                               */
+/* -------------------------------------------------------------------------- */
+
 const DEPENDENCIES = {
   typescript: ['typescript'],
 
@@ -68,13 +81,13 @@ const DEPENDENCIES = {
   ],
 };
 
+/* -------------------------------------------------------------------------- */
+/* Presets                                                                    */
+/* -------------------------------------------------------------------------- */
+
 const PRESETS = {
   node: {
     typescript: 'node',
-    eslint: 'node',
-  },
-  bundler: {
-    typescript: 'bundler',
     eslint: 'node',
   },
 
@@ -83,18 +96,21 @@ const PRESETS = {
     eslint: 'library',
   },
 
+  bundler: {
+    typescript: 'bundler',
+    eslint: 'base',
+  },
+
   strict: {
     eslint: 'strict',
   },
+
+  default: {},
 };
 
-const VALID_CONFIGS = [
-  'typescript',
-  'prettier',
-  'eslint',
-];
-
-const VALID_PRESETS = Object.keys(PRESETS);
+/* -------------------------------------------------------------------------- */
+/* Logging                                                                    */
+/* -------------------------------------------------------------------------- */
 
 function log(message) {
   console.log(`\n${message}`);
@@ -108,9 +124,13 @@ function warn(message) {
   console.warn(`⚠ ${message}`);
 }
 
-function fail(message) {
+function error(message) {
   console.error(`✗ ${message}`);
 }
+
+/* -------------------------------------------------------------------------- */
+/* File utilities                                                             */
+/* -------------------------------------------------------------------------- */
 
 function ensureDirectory(directory) {
   mkdirSync(directory, {
@@ -118,8 +138,53 @@ function ensureDirectory(directory) {
   });
 }
 
+function readJsonFile(file) {
+  return JSON.parse(readFileSync(file, 'utf8'));
+}
+
+function writeJsonFile(file, data) {
+  ensureDirectory(dirname(file));
+
+  writeFileSync(
+    file,
+    `${JSON.stringify(data, null, 2)}\n`,
+    'utf8',
+  );
+}
+
+function copyConfig(source, destination, force = false) {
+  if (!existsSync(source)) {
+    throw new Error(
+      `Configuration file does not exist:\n${source}`,
+    );
+  }
+
+  if (existsSync(destination) && !force) {
+    warn(
+      `Skipped ${destination} because it already exists. Use --force to overwrite.`,
+    );
+
+    return false;
+  }
+
+  ensureDirectory(dirname(destination));
+
+  copyFileSync(source, destination);
+
+  success(`Created ${destination}`);
+
+  return true;
+}
+
+/* -------------------------------------------------------------------------- */
+/* package.json                                                               */
+/* -------------------------------------------------------------------------- */
+
 function readPackageJson() {
-  const packageJsonPath = join(process.cwd(), 'package.json');
+  const packageJsonPath = join(
+    process.cwd(),
+    'package.json',
+  );
 
   if (!existsSync(packageJsonPath)) {
     throw new Error(
@@ -127,24 +192,24 @@ function readPackageJson() {
     );
   }
 
-  try {
-    return {
-      path: packageJsonPath,
-      data: JSON.parse(
-        readFileSync(packageJsonPath, 'utf8'),
-      ),
-    };
-  } catch {
-    throw new Error('Unable to parse package.json.');
-  }
+  return {
+    path: packageJsonPath,
+    data: readJsonFile(packageJsonPath),
+  };
 }
+
+/* -------------------------------------------------------------------------- */
+/* Package manager detection                                                  */
+/* -------------------------------------------------------------------------- */
 
 function detectPackageManager() {
   const cwd = process.cwd();
 
   /*
-   * Lockfile is the most reliable signal.
+   * Prefer the lockfile because it is the most reliable
+   * indicator when running inside an existing project.
    */
+
   if (existsSync(join(cwd, 'pnpm-lock.yaml'))) {
     return 'pnpm';
   }
@@ -157,15 +222,19 @@ function detectPackageManager() {
   }
 
   if (
+    existsSync(join(cwd, 'bun.lockb')) ||
+    existsSync(join(cwd, 'bun.lock'))
+  ) {
+    return 'bun';
+  }
+
+  if (
     existsSync(join(cwd, 'bun.lock')) ||
     existsSync(join(cwd, 'bun.lockb'))
   ) {
     return 'bun';
   }
 
-  /*
-   * Fall back to the npm user agent.
-   */
   const userAgent =
     process.env.npm_config_user_agent ?? '';
 
@@ -213,42 +282,45 @@ function getInstallCommand(packageManager, packages) {
   }
 }
 
-function installDependencies(packages, options = {}) {
-  if (!packages.length) {
+/* -------------------------------------------------------------------------- */
+/* Dependency installation                                                    */
+/* -------------------------------------------------------------------------- */
+
+function installDependencies(packages) {
+  const uniquePackages = [
+    ...new Set(packages),
+  ];
+
+  if (!uniquePackages.length) {
     return;
   }
 
-  if (options.noInstall) {
-    warn(
-      `Skipping dependency installation: ${packages.join(', ')}`,
-    );
-
-    return;
-  }
-
-  const packageManager = detectPackageManager();
+  const packageManager =
+    detectPackageManager();
 
   log(
-    `Installing dependencies with ${packageManager}: ${packages.join(', ')}`,
+    `Installing dependencies with ${packageManager}:\n${uniquePackages
+      .map((dependency) => `  - ${dependency}`)
+      .join('\n')}`,
   );
 
-  if (options.dryRun) {
-    const { command, args } =
-      getInstallCommand(packageManager, packages);
+  const {
+    command,
+    args,
+  } = getInstallCommand(
+    packageManager,
+    uniquePackages,
+  );
 
-    console.log(`${command} ${args.join(' ')}`);
-
-    return;
-  }
-
-  const { command, args } =
-    getInstallCommand(packageManager, packages);
-
-  const result = spawnSync(command, args, {
-    cwd: process.cwd(),
-    stdio: 'inherit',
-    shell: process.platform === 'win32',
-  });
+  const result = spawnSync(
+    command,
+    args,
+    {
+      cwd: process.cwd(),
+      stdio: 'inherit',
+      shell: process.platform === 'win32',
+    },
+  );
 
   if (result.error) {
     throw result.error;
@@ -263,33 +335,37 @@ function installDependencies(packages, options = {}) {
   success('Dependencies installed.');
 }
 
-function copyConfig(source, destination, force = false) {
-  if (!existsSync(source)) {
+/* -------------------------------------------------------------------------- */
+/* TypeScript                                                                 */
+/* -------------------------------------------------------------------------- */
+
+function getTypeScriptConfigFile(config) {
+  const normalized =
+    config === 'typescript'
+      ? 'base'
+      : config;
+
+  const file =
+    CONFIG_FILES.typescript[normalized];
+
+  if (!file) {
     throw new Error(
-      `Configuration file does not exist: ${source}`,
+      `Unknown TypeScript configuration "${config}".`,
     );
   }
 
-  if (existsSync(destination) && !force) {
-    warn(
-      `Skipped ${destination} because it already exists. Use --force to overwrite.`,
-    );
-
-    return false;
-  }
-
-  ensureDirectory(dirname(destination));
-
-  copyFileSync(source, destination);
-
-  success(`Created ${destination}`);
-
-  return true;
+  return file;
 }
 
-function getTypescriptDestination(config) {
-  if (config === 'base') {
-    return join(process.cwd(), 'tsconfig.json');
+function getTypeScriptDestination(config) {
+  if (
+    config === 'base' ||
+    config === 'typescript'
+  ) {
+    return join(
+      process.cwd(),
+      'tsconfig.json',
+    );
   }
 
   return join(
@@ -298,19 +374,21 @@ function getTypescriptDestination(config) {
   );
 }
 
-function createTypescriptConfig(config, force) {
-  if (!CONFIG_FILES.typescript[config]) {
-    throw new Error(
-      `Unknown TypeScript configuration "${config}".`,
+function createTypeScriptConfig(
+  config,
+  force,
+) {
+  const file =
+    getTypeScriptConfigFile(config);
+
+  const source =
+    join(
+      CONFIG_ROOTS.typescript,
+      file,
     );
-  }
 
-  const source = join(
-    CONFIG_ROOTS.typescript,
-    CONFIG_FILES.typescript[config],
-  );
-
-  const destination = getTypescriptDestination(config);
+  const destination =
+    getTypeScriptDestination(config);
 
   return copyConfig(
     source,
@@ -319,64 +397,72 @@ function createTypescriptConfig(config, force) {
   );
 }
 
-function createPrettierConfig(options) {
-  const {
-    sortImports,
-    force,
-  } = options;
+/* -------------------------------------------------------------------------- */
+/* Prettier                                                                   */
+/* -------------------------------------------------------------------------- */
 
-  /*
-   * Always install the base prettier config.
-   */
-  const source = join(
-    CONFIG_ROOTS.prettier,
-    CONFIG_FILES.prettier.base,
-  );
-
-  const destination = join(
-    process.cwd(),
-    'prettier.config.mjs',
-  );
-
-  const created = copyConfig(
-    source,
-    destination,
-    force,
-  );
-
-  /*
-   * Import sorting is an optional separate configuration.
-   *
-   * This file can be imported/extended by the user's
-   * prettier config instead of replacing the base config.
-   */
-  if (sortImports) {
-    const sortImportsSource = join(
+function createPrettierConfig(
+  sortImports,
+  force,
+) {
+  const baseSource =
+    join(
       CONFIG_ROOTS.prettier,
-      CONFIG_FILES.prettier.sortImports,
+      CONFIG_FILES.prettier.base,
     );
 
-    const sortImportsDestination = join(
+  const destination =
+    join(
       process.cwd(),
-      'prettier.sort-imports.config.mjs',
+      'prettier.config.mjs',
     );
+
+  const created =
+    copyConfig(
+      baseSource,
+      destination,
+      force,
+    );
+
+  /*
+   * The sort-imports configuration intentionally
+   * imports the base prettier configuration.
+   *
+   * Therefore both files must be copied when
+   * --sort-imports is enabled.
+   */
+
+  if (sortImports) {
+    const sortSource =
+      join(
+        CONFIG_ROOTS.prettier,
+        CONFIG_FILES.prettier.sortImports,
+      );
+
+    const sortDestination =
+      join(
+        process.cwd(),
+        'prettier.sort-imports.config.mjs',
+      );
 
     copyConfig(
-      sortImportsSource,
-      sortImportsDestination,
+      sortSource,
+      sortDestination,
       force,
     );
   }
 
-  const ignoreSource = join(
-    CONFIG_ROOTS.prettier,
-    CONFIG_FILES.prettier.ignore,
-  );
+  const ignoreSource =
+    join(
+      CONFIG_ROOTS.prettier,
+      CONFIG_FILES.prettier.ignore,
+    );
 
-  const ignoreDestination = join(
-    process.cwd(),
-    '.prettierignore',
-  );
+  const ignoreDestination =
+    join(
+      process.cwd(),
+      '.prettierignore',
+    );
 
   copyConfig(
     ignoreSource,
@@ -387,22 +473,46 @@ function createPrettierConfig(options) {
   return created;
 }
 
-function createEslintConfig(config, force) {
-  if (!CONFIG_FILES.eslint[config]) {
+/* -------------------------------------------------------------------------- */
+/* ESLint                                                                     */
+/* -------------------------------------------------------------------------- */
+
+function getEslintConfigFile(config) {
+  const normalized =
+    config === 'eslint'
+      ? 'base'
+      : config;
+
+  const file =
+    CONFIG_FILES.eslint[normalized];
+
+  if (!file) {
     throw new Error(
       `Unknown ESLint configuration "${config}".`,
     );
   }
 
-  const source = join(
-    CONFIG_ROOTS.eslint,
-    CONFIG_FILES.eslint[config],
-  );
+  return file;
+}
 
-  const destination = join(
-    process.cwd(),
-    'eslint.config.js',
-  );
+function createEslintConfig(
+  config,
+  force,
+) {
+  const file =
+    getEslintConfigFile(config);
+
+  const source =
+    join(
+      CONFIG_ROOTS.eslint,
+      file,
+    );
+
+  const destination =
+    join(
+      process.cwd(),
+      'eslint.config.js',
+    );
 
   return copyConfig(
     source,
@@ -411,258 +521,315 @@ function createEslintConfig(config, force) {
   );
 }
 
-function collectDependencies(options) {
-  const dependencies = new Set();
+/* -------------------------------------------------------------------------- */
+/* Preset handling                                                            */
+/* -------------------------------------------------------------------------- */
 
-  if (options.typescript) {
-    for (const dependency of DEPENDENCIES.typescript) {
-      dependencies.add(dependency);
-    }
+function getPresetConfig(preset) {
+  if (!preset) {
+    return PRESETS.default;
   }
 
-  if (options.prettier) {
-    for (const dependency of DEPENDENCIES.prettier) {
-      dependencies.add(dependency);
-    }
+  const configuration =
+    PRESETS[preset];
+
+  if (!configuration) {
+    throw new Error(
+      `Unknown preset "${preset}". Available presets: ${Object.keys(
+        PRESETS,
+      )
+        .filter((name) => name !== 'default')
+        .join(', ')}`,
+    );
   }
 
-  if (options.sortImports) {
-    for (const dependency of DEPENDENCIES.prettierSortImports) {
-      dependencies.add(dependency);
-    }
-  }
-
-  if (options.eslint) {
-    for (const dependency of DEPENDENCIES.eslint) {
-      dependencies.add(dependency);
-    }
-  }
-
-  if (options.eslintPrettier) {
-    for (const dependency of DEPENDENCIES.eslintPrettier) {
-      dependencies.add(dependency);
-    }
-  }
-
-  return [...dependencies];
+  return configuration;
 }
 
-function updatePackageScripts(options = {}) {
-  const {
-    typescript,
-    prettier,
-    eslint,
-    dryRun = false,
-  } = options;
+/* -------------------------------------------------------------------------- */
+/* Dependency collection                                                      */
+/* -------------------------------------------------------------------------- */
 
-  const { path, data } = readPackageJson();
-
-  data.scripts ??= {};
-
-  const scripts = {};
+function collectDependencies({
+  typescript = false,
+  prettier = false,
+  sortImports = false,
+  eslint = false,
+  eslintPrettier = false,
+}) {
+  const dependencies =
+    new Set();
 
   if (typescript) {
-    scripts.typecheck = 'tsc --noEmit';
+    for (
+      const dependency of
+      DEPENDENCIES.typescript
+    ) {
+      dependencies.add(
+        dependency,
+      );
+    }
   }
 
   if (prettier) {
-    scripts.format = 'prettier --write .';
-    scripts['format:check'] = 'prettier --check .';
-  }
-
-  if (eslint) {
-    scripts.lint = 'eslint .';
-  }
-
-  let changed = false;
-
-  for (const [name, command] of Object.entries(scripts)) {
-    if (!data.scripts[name]) {
-      data.scripts[name] = command;
-      changed = true;
+    for (
+      const dependency of
+      DEPENDENCIES.prettier
+    ) {
+      dependencies.add(
+        dependency,
+      );
     }
   }
 
-  if (!changed) {
-    return;
+  if (sortImports) {
+    for (
+      const dependency of
+      DEPENDENCIES.prettierSortImports
+    ) {
+      dependencies.add(
+        dependency,
+      );
+    }
   }
 
-  if (dryRun) {
-    success('Would update package.json scripts.');
-
-    return;
+  if (eslint) {
+    for (
+      const dependency of
+      DEPENDENCIES.eslint
+    ) {
+      dependencies.add(
+        dependency,
+      );
+    }
   }
 
-  writeFileSync(
+  if (eslintPrettier) {
+    for (
+      const dependency of
+      DEPENDENCIES.eslintPrettier
+    ) {
+      dependencies.add(
+        dependency,
+      );
+    }
+  }
+
+  return [
+    ...dependencies,
+  ];
+}
+
+/* -------------------------------------------------------------------------- */
+/* package.json scripts                                                       */
+/* -------------------------------------------------------------------------- */
+
+function updatePackageScripts({
+  typescript,
+  prettier,
+  eslint,
+}) {
+  const {
     path,
-    `${JSON.stringify(data, null, 2)}\n`,
+    data,
+  } = readPackageJson();
+
+  data.scripts ??= {};
+
+  let changed = false;
+
+  if (
+    typescript &&
+    !data.scripts.typecheck
+  ) {
+    data.scripts.typecheck =
+      'tsc --noEmit';
+
+    changed = true;
+  }
+
+  if (
+    prettier &&
+    !data.scripts.format
+  ) {
+    data.scripts.format =
+      'prettier --write .';
+
+    changed = true;
+  }
+
+  if (
+    prettier &&
+    !data.scripts['format:check']
+  ) {
+    data.scripts['format:check'] =
+      'prettier --check .';
+
+    changed = true;
+  }
+
+  if (
+    eslint &&
+    !data.scripts.lint
+  ) {
+    data.scripts.lint =
+      'eslint .';
+
+    changed = true;
+  }
+
+  if (changed) {
+    writeJsonFile(
+      path,
+      data,
+    );
+
+    success(
+      'Updated package.json scripts.',
+    );
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Initialization                                                             */
+/* -------------------------------------------------------------------------- */
+
+function init({
+  config,
+  all,
+  force,
+  preset,
+  sortImports,
+}) {
+  const packageConfig =
+    getPresetConfig(preset);
+
+  const initializeTypescript =
+    all ||
+    config === 'typescript' ||
+    config === 'tsconfig' ||
+    Boolean(
+      packageConfig.typescript,
+    );
+
+  const initializePrettier =
+    all ||
+    config === 'prettier';
+
+  const initializeEslint =
+    all ||
+    config === 'eslint' ||
+    Boolean(
+      packageConfig.eslint,
+    );
+
+  const typescriptPreset =
+    packageConfig.typescript ??
+    'base';
+
+  const eslintPreset =
+    packageConfig.eslint ??
+    'base';
+
+  /*
+   * If the user explicitly requests
+   * a configuration, don't silently
+   * initialize unrelated configurations.
+   */
+
+  log(
+    'Initializing project configuration...',
   );
 
-  success('Updated package.json scripts.');
-}
-
-function resolvePreset(preset) {
-  if (!preset || preset === 'default') {
-    return {};
-  }
-
-  if (!PRESETS[preset]) {
-    throw new Error(
-      `Unknown preset "${preset}". Available presets: ${VALID_PRESETS.join(', ')}`,
-    );
-  }
-
-  return PRESETS[preset];
-}
-
-function resolveConfiguration({
-  config,
-  preset,
-  all,
-}) {
-  const presetConfig = resolvePreset(preset);
-
-  const initializeAll = Boolean(all);
-
-  return {
-    typescript:
-      initializeAll ||
-      config === 'typescript' ||
-      Boolean(presetConfig.typescript),
-
-    prettier:
-      initializeAll ||
-      config === 'prettier',
-
-    eslint:
-      initializeAll ||
-      config === 'eslint' ||
-      Boolean(presetConfig.eslint),
-
-    typescriptPreset:
-      presetConfig.typescript ?? 'base',
-
-    eslintPreset:
-      presetConfig.eslint ?? 'base',
-  };
-}
-
-function init(options) {
-  const {
-    config,
-    preset,
-    all,
-    force,
-    sortImports,
-    dryRun,
-    noInstall,
-  } = options;
-
-  const resolved = resolveConfiguration({
-    config,
-    preset,
-    all,
-  });
-
-  log('Initializing project configuration...');
-
-  if (resolved.typescript) {
-    createTypescriptConfig(
-      resolved.typescriptPreset,
+  if (initializeTypescript) {
+    createTypeScriptConfig(
+      typescriptPreset,
       force,
     );
   }
 
-  if (resolved.prettier) {
-    createPrettierConfig({
+  if (initializePrettier) {
+    createPrettierConfig(
       sortImports,
       force,
-    });
+    );
   }
 
-  if (resolved.eslint) {
+  if (initializeEslint) {
     createEslintConfig(
-      resolved.eslintPreset,
+      eslintPreset,
       force,
     );
   }
 
-  const dependencies = collectDependencies({
-    typescript: resolved.typescript,
-    prettier: resolved.prettier,
-    sortImports:
-      resolved.prettier && sortImports,
-    eslint: resolved.eslint,
-    eslintPrettier:
-      resolved.eslint &&
-      resolved.prettier,
-  });
+  const dependencies =
+    collectDependencies({
+      typescript:
+        initializeTypescript,
+
+      prettier:
+        initializePrettier,
+
+      sortImports:
+        initializePrettier &&
+        sortImports,
+
+      eslint:
+        initializeEslint,
+
+      eslintPrettier:
+        initializeEslint &&
+        initializePrettier,
+    });
 
   installDependencies(
     dependencies,
-    {
-      dryRun,
-      noInstall,
-    },
   );
 
   updatePackageScripts({
-    typescript: resolved.typescript,
-    prettier: resolved.prettier,
-    eslint: resolved.eslint,
-    dryRun,
+    typescript:
+      initializeTypescript,
+
+    prettier:
+      initializePrettier,
+
+    eslint:
+      initializeEslint,
   });
 
   log(
-    dryRun
-      ? 'Dry run completed.'
-      : 'Configuration initialized successfully.',
+    'Configuration initialized successfully.',
   );
-}
-
-function doctor() {
-  const { data } = readPackageJson();
-
-  const checks = [
-    [
-      'TypeScript',
-      'tsconfig.json',
-    ],
-    [
-      'Prettier',
-      'prettier.config.mjs',
-    ],
-    [
-      'Prettier ignore',
-      '.prettierignore',
-    ],
-    [
-      'ESLint',
-      'eslint.config.js',
-    ],
-  ];
 
   console.log(`
-Project:
+Next steps:
 
-name: ${data.name ?? 'unknown'}
-package manager: ${detectPackageManager()}
-
-Configuration:
-`);
-
-  for (const [name, file] of checks) {
-    const exists = existsSync(
-      join(process.cwd(), file),
-    );
-
-    console.log(
-      `${exists ? '✓' : '✗'} ${name}: ${file}`,
-    );
-  }
+${
+  initializeTypescript
+    ? '  npm run typecheck'
+    : ''
 }
 
-const program = new Command();
+${
+  initializePrettier
+    ? '  npm run format'
+    : ''
+}
+
+${
+  initializeEslint
+    ? '  npm run lint'
+    : ''
+}
+`);
+}
+
+/* -------------------------------------------------------------------------- */
+/* CLI                                                                        */
+/* -------------------------------------------------------------------------- */
+
+const program =
+  new Command();
 
 program
   .name('ts-config')
@@ -671,9 +838,15 @@ program
   )
   .version('0.0.1');
 
+/* -------------------------------------------------------------------------- */
+/* init command                                                               */
+/* -------------------------------------------------------------------------- */
+
 program
   .command('init')
-  .description('Initialize project configuration')
+  .description(
+    'Initialize project configuration',
+  )
   .argument(
     '[config]',
     'typescript, prettier, or eslint',
@@ -688,65 +861,85 @@ program
   )
   .option(
     '--preset <preset>',
-    'Configuration preset: node, bundler, library, strict',
+    'Configuration preset: node, library, bundler, strict',
   )
   .option(
     '--sort-imports',
-    'Enable Prettier import sorting configuration',
+    'Enable @trivago/prettier-plugin-sort-imports',
   )
-  .option(
-    '--no-install',
-    'Do not install dependencies',
-  )
-  .option(
-    '--dry-run',
-    'Show what would happen without changing the project',
-  )
-  .action((config, options) => {
-    try {
-      const normalizedConfig =
-        config === 'tsconfig'
-          ? 'typescript'
-          : config;
+  .action(
+    (config, options) => {
+      try {
+        if (
+          !options.all &&
+          !config &&
+          !options.preset
+        ) {
+          throw new Error(
+            'Specify a configuration, use --preset, or use --all.',
+          );
+        }
 
-      if (
-        normalizedConfig &&
-        !VALID_CONFIGS.includes(normalizedConfig)
-      ) {
-        throw new Error(
-          `Unknown configuration "${config}".`,
+        const normalizedConfig =
+          config === 'tsconfig'
+            ? 'typescript'
+            : config;
+
+        const allowed = [
+          undefined,
+          'typescript',
+          'prettier',
+          'eslint',
+        ];
+
+        if (
+          !allowed.includes(
+            normalizedConfig,
+          )
+        ) {
+          throw new Error(
+            `Unknown configuration "${config}".`,
+          );
+        }
+
+        init({
+          config:
+            normalizedConfig,
+
+          all:
+            Boolean(
+              options.all,
+            ),
+
+          force:
+            Boolean(
+              options.force,
+            ),
+
+          preset:
+            options.preset ??
+            'default',
+
+          sortImports:
+            Boolean(
+              options.sortImports,
+            ),
+        });
+      } catch (err) {
+        error(
+          err instanceof Error
+            ? err.message
+            : String(err),
         );
+
+        process.exitCode = 1;
       }
+    },
+  );
 
-      if (
-        !options.all &&
-        !normalizedConfig &&
-        !options.preset
-      ) {
-        throw new Error(
-          'Specify a configuration, --preset, or --all.',
-        );
-      }
-
-      init({
-        config: normalizedConfig,
-        all: Boolean(options.all),
-        force: Boolean(options.force),
-        preset: options.preset ?? 'default',
-        sortImports: Boolean(options.sortImports),
-        noInstall: Boolean(options.install === false),
-        dryRun: Boolean(options.dryRun),
-      });
-    } catch (err) {
-      fail(
-        err instanceof Error
-          ? err.message
-          : String(err),
-      );
-
-      process.exitCode = 1;
-    }
-  });
+/* -------------------------------------------------------------------------- */
+/* list command                                                               */
+/* -------------------------------------------------------------------------- */
 
 program
   .command('list')
@@ -762,13 +955,14 @@ TypeScript:
   node
   library
   bundler
+  next
   react
   react-library
-  next
 
 Prettier:
   base
   sort-imports
+  ignore
 
 ESLint:
   base
@@ -778,15 +972,28 @@ ESLint:
   prettier
 
 Presets:
+
   node
+    TypeScript Node + ESLint Node
+
   library
+    TypeScript Library + ESLint Library
+
+  bundler
+    TypeScript Bundler + ESLint Base
+
   strict
+    ESLint Strict
 
 Examples:
 
   npx ts-config init --all
 
   npx ts-config init typescript
+
+  npx ts-config init typescript --preset node
+
+  npx ts-config init typescript --preset library
 
   npx ts-config init typescript --preset bundler
 
@@ -796,17 +1003,21 @@ Examples:
 
   npx ts-config init eslint
 
+  npx ts-config init eslint --preset strict
+
   npx ts-config init --all --preset node
 
   npx ts-config init --all --preset library
 
-  npx ts-config init eslint --preset strict
+  npx ts-config init --all --preset bundler
 
   npx ts-config init --all --force
-
-  npx ts-config init --all --dry-run
 `);
   });
+
+/* -------------------------------------------------------------------------- */
+/* doctor command                                                             */
+/* -------------------------------------------------------------------------- */
 
 program
   .command('doctor')
@@ -815,9 +1026,84 @@ program
   )
   .action(() => {
     try {
-      doctor();
+      const {
+        data,
+      } = readPackageJson();
+
+      const cwd =
+        process.cwd();
+
+      console.log(`
+Project:
+
+name:
+  ${data.name ?? 'unknown'}
+
+package manager:
+  ${detectPackageManager()}
+
+Configuration:
+
+TypeScript:
+  ${
+    existsSync(
+      join(
+        cwd,
+        'tsconfig.json',
+      ),
+    )
+      ? '✓'
+      : '✗'
+  } tsconfig.json
+
+Prettier:
+  ${
+    existsSync(
+      join(
+        cwd,
+        'prettier.config.mjs',
+      ),
+    )
+      ? '✓'
+      : '✗'
+  } prettier.config.mjs
+
+  ${
+    existsSync(
+      join(
+        cwd,
+        'prettier.sort-imports.config.mjs',
+      ),
+    )
+      ? '✓'
+      : '✗'
+  } prettier.sort-imports.config.mjs
+
+  ${
+    existsSync(
+      join(
+        cwd,
+        '.prettierignore',
+      ),
+    )
+      ? '✓'
+      : '✗'
+  } .prettierignore
+
+ESLint:
+  ${
+    existsSync(
+      join(
+        cwd,
+        'eslint.config.js',
+      ),
+    )
+      ? '✓'
+      : '✗'
+  } eslint.config.js
+`);
     } catch (err) {
-      fail(
+      error(
         err instanceof Error
           ? err.message
           : String(err),
@@ -826,5 +1112,9 @@ program
       process.exitCode = 1;
     }
   });
+
+/* -------------------------------------------------------------------------- */
+/* Parse                                                                      */
+/* -------------------------------------------------------------------------- */
 
 program.parse();
