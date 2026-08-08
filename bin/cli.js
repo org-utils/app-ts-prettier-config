@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 
@@ -19,6 +19,7 @@ import process from 'node:process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
 const PACKAGE_ROOT = resolve(__dirname, '..');
 
 const CONFIG_ROOTS = {
@@ -28,7 +29,7 @@ const CONFIG_ROOTS = {
 };
 
 /* -------------------------------------------------------------------------- */
-/* Available configuration files                                              */
+/* Configuration files                                                        */
 /* -------------------------------------------------------------------------- */
 
 const CONFIG_FILES = {
@@ -139,7 +140,9 @@ function ensureDirectory(directory) {
 }
 
 function readJsonFile(file) {
-  return JSON.parse(readFileSync(file, 'utf8'));
+  return JSON.parse(
+    readFileSync(file, 'utf8'),
+  );
 }
 
 function writeJsonFile(file, data) {
@@ -148,6 +151,20 @@ function writeJsonFile(file, data) {
   writeFileSync(
     file,
     `${JSON.stringify(data, null, 2)}\n`,
+    'utf8',
+  );
+}
+
+function readTextFile(file) {
+  return readFileSync(file, 'utf8');
+}
+
+function writeTextFile(file, content) {
+  ensureDirectory(dirname(file));
+
+  writeFileSync(
+    file,
+    content,
     'utf8',
   );
 }
@@ -199,16 +216,11 @@ function readPackageJson() {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Package manager detection                                                  */
+/* Package manager                                                            */
 /* -------------------------------------------------------------------------- */
 
 function detectPackageManager() {
   const cwd = process.cwd();
-
-  /*
-   * Prefer the lockfile because it is the most reliable
-   * indicator when running inside an existing project.
-   */
 
   if (existsSync(join(cwd, 'pnpm-lock.yaml'))) {
     return 'pnpm';
@@ -224,13 +236,6 @@ function detectPackageManager() {
   if (
     existsSync(join(cwd, 'bun.lockb')) ||
     existsSync(join(cwd, 'bun.lock'))
-  ) {
-    return 'bun';
-  }
-
-  if (
-    existsSync(join(cwd, 'bun.lock')) ||
-    existsSync(join(cwd, 'bun.lockb'))
   ) {
     return 'bun';
   }
@@ -253,7 +258,10 @@ function detectPackageManager() {
   return 'npm';
 }
 
-function getInstallCommand(packageManager, packages) {
+function getInstallCommand(
+  packageManager,
+  packages,
+) {
   switch (packageManager) {
     case 'pnpm':
       return {
@@ -277,14 +285,14 @@ function getInstallCommand(packageManager, packages) {
     default:
       return {
         command: 'npm',
-        args: ['install', '--save-dev', ...packages],
+        args: [
+          'install',
+          '--save-dev',
+          ...packages,
+        ],
       };
   }
 }
-
-/* -------------------------------------------------------------------------- */
-/* Dependency installation                                                    */
-/* -------------------------------------------------------------------------- */
 
 function installDependencies(packages) {
   const uniquePackages = [
@@ -318,7 +326,8 @@ function installDependencies(packages) {
     {
       cwd: process.cwd(),
       stdio: 'inherit',
-      shell: process.platform === 'win32',
+      shell:
+        process.platform === 'win32',
     },
   );
 
@@ -336,7 +345,44 @@ function installDependencies(packages) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* TypeScript                                                                 */
+/* Deep merge                                                                 */
+/* -------------------------------------------------------------------------- */
+
+function isPlainObject(value) {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    !Array.isArray(value)
+  );
+}
+
+function deepMerge(base, override) {
+  const result = {
+    ...base,
+  };
+
+  for (const [
+    key,
+    value,
+  ] of Object.entries(override)) {
+    if (
+      isPlainObject(result[key]) &&
+      isPlainObject(value)
+    ) {
+      result[key] = deepMerge(
+        result[key],
+        value,
+      );
+    } else {
+      result[key] = value;
+    }
+  }
+
+  return result;
+}
+
+/* -------------------------------------------------------------------------- */
+/* TypeScript configuration                                                   */
 /* -------------------------------------------------------------------------- */
 
 function getTypeScriptConfigFile(config) {
@@ -346,7 +392,9 @@ function getTypeScriptConfigFile(config) {
       : config;
 
   const file =
-    CONFIG_FILES.typescript[normalized];
+    CONFIG_FILES.typescript[
+      normalized
+    ];
 
   if (!file) {
     throw new Error(
@@ -374,6 +422,93 @@ function getTypeScriptDestination(config) {
   );
 }
 
+/**
+ * Resolve an "extends" path inside the
+ * configuration package.
+ */
+function resolveTypeScriptExtends(
+  extendsValue,
+) {
+  if (!extendsValue) {
+    return null;
+  }
+
+  let candidate = extendsValue;
+
+  if (!candidate.endsWith('.json')) {
+    candidate += '.json';
+  }
+
+  const absolutePath = resolve(
+    CONFIG_ROOTS.typescript,
+    candidate,
+  );
+
+  if (existsSync(absolutePath)) {
+    return absolutePath;
+  }
+
+  return null;
+}
+
+/**
+ * Load a TypeScript configuration and
+ * recursively resolve its extends chain.
+ *
+ * The generated target configuration
+ * contains no extends reference.
+ */
+function loadTypeScriptConfig(
+  file,
+  visited = new Set(),
+) {
+  const absoluteFile = resolve(
+    CONFIG_ROOTS.typescript,
+    file,
+  );
+
+  if (visited.has(absoluteFile)) {
+    throw new Error(
+      `Circular TypeScript configuration detected:\n${absoluteFile}`,
+    );
+  }
+
+  visited.add(absoluteFile);
+
+  const config =
+    readJsonFile(absoluteFile);
+
+  const parentFile =
+    resolveTypeScriptExtends(
+      config.extends,
+    );
+
+  let result = {};
+
+  if (parentFile) {
+    result = loadTypeScriptConfig(
+      parentFile,
+      visited,
+    );
+  }
+
+  const {
+    extends: _extends,
+    ...currentConfig
+  } = config;
+
+  result = deepMerge(
+    result,
+    currentConfig,
+  );
+
+  visited.delete(
+    absoluteFile,
+  );
+
+  return result;
+}
+
 function createTypeScriptConfig(
   config,
   force,
@@ -381,20 +516,33 @@ function createTypeScriptConfig(
   const file =
     getTypeScriptConfigFile(config);
 
-  const source =
-    join(
-      CONFIG_ROOTS.typescript,
-      file,
-    );
-
   const destination =
     getTypeScriptDestination(config);
 
-  return copyConfig(
-    source,
+  const mergedConfig =
+    loadTypeScriptConfig(file);
+
+  if (
+    existsSync(destination) &&
+    !force
+  ) {
+    warn(
+      `Skipped ${destination} because it already exists. Use --force to overwrite.`,
+    );
+
+    return false;
+  }
+
+  writeJsonFile(
     destination,
-    force,
+    mergedConfig,
   );
+
+  success(
+    `Created ${destination} with resolved TypeScript configuration.`,
+  );
+
+  return true;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -405,86 +553,232 @@ function createPrettierConfig(
   sortImports,
   force,
 ) {
-  const baseSource =
-    join(
-      CONFIG_ROOTS.prettier,
-      CONFIG_FILES.prettier.base,
-    );
+  const cwd = process.cwd();
 
-  const destination =
-    join(
-      process.cwd(),
-      'prettier.config.mjs',
-    );
+  const baseSource = join(
+    CONFIG_ROOTS.prettier,
+    CONFIG_FILES.prettier.base,
+  );
 
-  const created =
-    copyConfig(
-      baseSource,
-      destination,
-      force,
-    );
+  const baseDestination = join(
+    cwd,
+    'prettier.config.mjs',
+  );
 
   /*
-   * The sort-imports configuration intentionally
-   * imports the base prettier configuration.
-   *
-   * Therefore both files must be copied when
-   * --sort-imports is enabled.
+   * Always copy the base configuration.
    */
+  copyConfig(
+    baseSource,
+    baseDestination,
+    force,
+  );
 
+  /*
+   * The sort-import configuration imports
+   * prettier.config.mjs.
+   *
+   * Therefore both files are copied.
+   */
   if (sortImports) {
-    const sortSource =
-      join(
-        CONFIG_ROOTS.prettier,
-        CONFIG_FILES.prettier.sortImports,
-      );
+    const sortSource = join(
+      CONFIG_ROOTS.prettier,
+      CONFIG_FILES.prettier.sortImports,
+    );
 
-    const sortDestination =
-      join(
-        process.cwd(),
-        'prettier.sort-imports.config.mjs',
-      );
+    const sortDestination = join(
+      cwd,
+      'prettier.sort-imports.config.mjs',
+    );
 
     copyConfig(
       sortSource,
       sortDestination,
       force,
     );
+
+    /*
+     * Prettier automatically discovers
+     * prettier.config.mjs, not the sort-imports
+     * file.
+     *
+     * Replace prettier.config.mjs with the
+     * sort-import configuration so that the
+     * plugin is actually active.
+     */
+    const sortConfig =
+      readTextFile(sortSource);
+
+    writeTextFile(
+      baseDestination,
+      sortConfig,
+    );
+
+    success(
+      'Enabled Prettier import sorting.',
+    );
   }
 
-  const ignoreSource =
-    join(
-      CONFIG_ROOTS.prettier,
-      CONFIG_FILES.prettier.ignore,
-    );
+  const ignoreSource = join(
+    CONFIG_ROOTS.prettier,
+    CONFIG_FILES.prettier.ignore,
+  );
 
-  const ignoreDestination =
-    join(
-      process.cwd(),
-      '.prettierignore',
-    );
+  const ignoreDestination = join(
+    cwd,
+    '.prettierignore',
+  );
 
   copyConfig(
     ignoreSource,
     ignoreDestination,
     force,
   );
-
-  return created;
 }
 
 /* -------------------------------------------------------------------------- */
-/* ESLint                                                                     */
+/* ESLint dependency resolution                                               */
 /* -------------------------------------------------------------------------- */
 
-function getEslintConfigFile(config) {
+/**
+ * Find local relative imports such as:
+ *
+ * import config from "./base.js";
+ * import "./strict.js";
+ *
+ * and copy the referenced config files.
+ */
+function findLocalImports(
+  source,
+) {
+  const content =
+    readTextFile(source);
+
+  const imports = new Set();
+
+  const patterns = [
+    /from\s+['"](\.[^'"]+)['"]/g,
+    /import\s+['"](\.[^'"]+)['"]/g,
+    /require\(\s*['"](\.[^'"]+)['"]\s*\)/g,
+  ];
+
+  for (const pattern of patterns) {
+    let match;
+
+    while (
+      (match = pattern.exec(content))
+    ) {
+      imports.add(match[1]);
+    }
+  }
+
+  return [
+    ...imports,
+  ];
+}
+
+function resolveLocalConfigFile(
+  source,
+  importPath,
+) {
+  const sourceDirectory =
+    dirname(source);
+
+  const rawPath = resolve(
+    sourceDirectory,
+    importPath,
+  );
+
+  const candidates = [
+    rawPath,
+    `${rawPath}.js`,
+    `${rawPath}.mjs`,
+    `${rawPath}.cjs`,
+    join(rawPath, 'index.js'),
+    join(rawPath, 'index.mjs'),
+  ];
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function copyEslintDependencyTree(
+  source,
+  destination,
+  force,
+  visited = new Set(),
+) {
+  const absoluteSource =
+    resolve(source);
+
+  if (visited.has(absoluteSource)) {
+    return;
+  }
+
+  visited.add(absoluteSource);
+
+  copyConfig(
+    absoluteSource,
+    destination,
+    force,
+  );
+
+  const localImports =
+    findLocalImports(
+      absoluteSource,
+    );
+
+  for (const importPath of localImports) {
+    const dependency =
+      resolveLocalConfigFile(
+        absoluteSource,
+        importPath,
+      );
+
+    if (!dependency) {
+      continue;
+    }
+
+    const targetDependency =
+      join(
+        dirname(destination),
+        importPath,
+      );
+
+    const extension =
+      extname(dependency);
+
+    const finalTarget =
+      extname(targetDependency)
+        ? targetDependency
+        : `${targetDependency}${extension}`;
+
+    copyEslintDependencyTree(
+      dependency,
+      finalTarget,
+      force,
+      visited,
+    );
+  }
+}
+
+function getEslintConfigFile(
+  config,
+) {
   const normalized =
     config === 'eslint'
       ? 'base'
       : config;
 
   const file =
-    CONFIG_FILES.eslint[normalized];
+    CONFIG_FILES.eslint[
+      normalized
+    ];
 
   if (!file) {
     throw new Error(
@@ -502,19 +796,17 @@ function createEslintConfig(
   const file =
     getEslintConfigFile(config);
 
-  const source =
-    join(
-      CONFIG_ROOTS.eslint,
-      file,
-    );
+  const source = join(
+    CONFIG_ROOTS.eslint,
+    file,
+  );
 
-  const destination =
-    join(
-      process.cwd(),
-      'eslint.config.js',
-    );
+  const destination = join(
+    process.cwd(),
+    'eslint.config.js',
+  );
 
-  return copyConfig(
+  copyEslintDependencyTree(
     source,
     destination,
     force,
@@ -522,7 +814,7 @@ function createEslintConfig(
 }
 
 /* -------------------------------------------------------------------------- */
-/* Preset handling                                                            */
+/* Presets                                                                    */
 /* -------------------------------------------------------------------------- */
 
 function getPresetConfig(preset) {
@@ -538,7 +830,9 @@ function getPresetConfig(preset) {
       `Unknown preset "${preset}". Available presets: ${Object.keys(
         PRESETS,
       )
-        .filter((name) => name !== 'default')
+        .filter(
+          (name) => name !== 'default',
+        )
         .join(', ')}`,
     );
   }
@@ -547,7 +841,7 @@ function getPresetConfig(preset) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Dependency collection                                                      */
+/* Dependencies                                                               */
 /* -------------------------------------------------------------------------- */
 
 function collectDependencies({
@@ -561,57 +855,32 @@ function collectDependencies({
     new Set();
 
   if (typescript) {
-    for (
-      const dependency of
-      DEPENDENCIES.typescript
-    ) {
-      dependencies.add(
-        dependency,
-      );
+    for (const dependency of DEPENDENCIES.typescript) {
+      dependencies.add(dependency);
     }
   }
 
   if (prettier) {
-    for (
-      const dependency of
-      DEPENDENCIES.prettier
-    ) {
-      dependencies.add(
-        dependency,
-      );
+    for (const dependency of DEPENDENCIES.prettier) {
+      dependencies.add(dependency);
     }
   }
 
   if (sortImports) {
-    for (
-      const dependency of
-      DEPENDENCIES.prettierSortImports
-    ) {
-      dependencies.add(
-        dependency,
-      );
+    for (const dependency of DEPENDENCIES.prettierSortImports) {
+      dependencies.add(dependency);
     }
   }
 
   if (eslint) {
-    for (
-      const dependency of
-      DEPENDENCIES.eslint
-    ) {
-      dependencies.add(
-        dependency,
-      );
+    for (const dependency of DEPENDENCIES.eslint) {
+      dependencies.add(dependency);
     }
   }
 
   if (eslintPrettier) {
-    for (
-      const dependency of
-      DEPENDENCIES.eslintPrettier
-    ) {
-      dependencies.add(
-        dependency,
-      );
+    for (const dependency of DEPENDENCIES.eslintPrettier) {
+      dependencies.add(dependency);
     }
   }
 
@@ -625,10 +894,18 @@ function collectDependencies({
 /* -------------------------------------------------------------------------- */
 
 function updatePackageScripts({
-  typescript,
-  prettier,
-  eslint,
+  typescript = false,
+  prettier = false,
+  eslint = false,
 }) {
+  if (
+    !typescript &&
+    !prettier &&
+    !eslint
+  ) {
+    return;
+  }
+
   const {
     path,
     data,
@@ -723,6 +1000,14 @@ function init({
       packageConfig.eslint,
     );
 
+  /*
+   * Explicit config + preset:
+   *
+   * ts-config init typescript --preset library
+   *
+   * -> library TypeScript configuration.
+   */
+
   const typescriptPreset =
     packageConfig.typescript ??
     'base';
@@ -730,12 +1015,6 @@ function init({
   const eslintPreset =
     packageConfig.eslint ??
     'base';
-
-  /*
-   * If the user explicitly requests
-   * a configuration, don't silently
-   * initialize unrelated configurations.
-   */
 
   log(
     'Initializing project configuration...',
@@ -801,27 +1080,35 @@ function init({
     'Configuration initialized successfully.',
   );
 
-  console.log(`
-Next steps:
+  const nextSteps = [];
 
-${
-  initializeTypescript
-    ? '  npm run typecheck'
-    : ''
-}
+  if (initializeTypescript) {
+    nextSteps.push(
+      'npm run typecheck',
+    );
+  }
 
-${
-  initializePrettier
-    ? '  npm run format'
-    : ''
-}
+  if (initializePrettier) {
+    nextSteps.push(
+      'npm run format',
+    );
+  }
 
-${
-  initializeEslint
-    ? '  npm run lint'
-    : ''
-}
-`);
+  if (initializeEslint) {
+    nextSteps.push(
+      'npm run lint',
+    );
+  }
+
+  if (nextSteps.length) {
+    console.log(
+      `\nNext steps:\n\n${nextSteps
+        .map(
+          (step) => `  ${step}`,
+        )
+        .join('\n')}`,
+    );
+  }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -839,7 +1126,7 @@ program
   .version('0.0.1');
 
 /* -------------------------------------------------------------------------- */
-/* init command                                                               */
+/* init                                                                       */
 /* -------------------------------------------------------------------------- */
 
 program
@@ -938,7 +1225,7 @@ program
   );
 
 /* -------------------------------------------------------------------------- */
-/* list command                                                               */
+/* list                                                                       */
 /* -------------------------------------------------------------------------- */
 
 program
@@ -1016,7 +1303,7 @@ Examples:
   });
 
 /* -------------------------------------------------------------------------- */
-/* doctor command                                                             */
+/* doctor                                                                     */
 /* -------------------------------------------------------------------------- */
 
 program
@@ -1033,74 +1320,80 @@ program
       const cwd =
         process.cwd();
 
+      const typescriptFiles = [
+        'tsconfig.json',
+        'tsconfig.node.json',
+        'tsconfig.library.json',
+        'tsconfig.bundler.json',
+        'tsconfig.next.json',
+        'tsconfig.react.json',
+        'tsconfig.react-library.json',
+      ];
+
       console.log(`
 Project:
 
 name:
-  ${data.name ?? 'unknown'}
+${data.name ?? 'unknown'}
 
 package manager:
-  ${detectPackageManager()}
+${detectPackageManager()}
 
 Configuration:
 
 TypeScript:
-  ${
-    existsSync(
-      join(
-        cwd,
-        'tsconfig.json',
-      ),
-    )
-      ? '✓'
-      : '✗'
-  } tsconfig.json
+${typescriptFiles
+  .map(
+    (file) =>
+      `${existsSync(join(cwd, file)) ? '✓' : '✗'} ${file}`,
+  )
+  .join('\n')}
 
 Prettier:
-  ${
-    existsSync(
-      join(
-        cwd,
-        'prettier.config.mjs',
-      ),
-    )
-      ? '✓'
-      : '✗'
-  } prettier.config.mjs
+${
+  existsSync(
+    join(
+      cwd,
+      'prettier.config.mjs',
+    ),
+  )
+    ? '✓'
+    : '✗'
+} prettier.config.mjs
 
-  ${
-    existsSync(
-      join(
-        cwd,
-        'prettier.sort-imports.config.mjs',
-      ),
-    )
-      ? '✓'
-      : '✗'
-  } prettier.sort-imports.config.mjs
+${
+  existsSync(
+    join(
+      cwd,
+      'prettier.sort-imports.config.mjs',
+    ),
+  )
+    ? '✓'
+    : '✗'
+} prettier.sort-imports.config.mjs
 
-  ${
-    existsSync(
-      join(
-        cwd,
-        '.prettierignore',
-      ),
-    )
-      ? '✓'
-      : '✗'
-  } .prettierignore
+${
+  existsSync(
+    join(
+      cwd,
+      '.prettierignore',
+    ),
+  )
+    ? '✓'
+    : '✗'
+} .prettierignore
 
 ESLint:
-  ${
-    existsSync(
-      join(
-        cwd,
-        'eslint.config.js',
-      ),
-    )
-      ? '✓'
-      : '✗'
-  } eslint.config.js
+${
+  existsSync(
+    join(
+      cwd,
+      'eslint.config.js',
+    ),
+  )
+    ? '✓'
+    : '✗'
+} eslint.config.js
 `);
     } catch (err) {
       error(
