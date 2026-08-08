@@ -1,5 +1,11 @@
 # ts-prettier-config
 
+## 0.0.8
+
+### Patch Changes
+
+- da632ce: updated cli configuration to use packge name
+
 ## 0.0.7
 
 ### Patch Changes
