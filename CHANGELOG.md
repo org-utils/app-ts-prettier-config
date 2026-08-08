@@ -1,5 +1,11 @@
 # ts-prettier-config
 
+## 0.0.5
+
+### Patch Changes
+
+- d18042c: updated patched
+
 ## 0.0.4
 
 ### Patch Changes
