@@ -1,5 +1,11 @@
 # ts-prettier-config
 
+## 0.0.7
+
+### Patch Changes
+
+- 8fd1b96: updated to patch the version
+
 ## 0.0.6
 
 ### Patch Changes
