@@ -1,5 +1,11 @@
 # ts-prettier-config
 
+## 0.0.4
+
+### Patch Changes
+
+- c9f08ea: updated cli config to include bundler
+
 ## 0.0.3
 
 ### Patch Changes

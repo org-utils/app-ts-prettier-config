@@ -1,6 +1,6 @@
 {
   "name": "ts-prettier-config",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Shared TypeScript, ESLint, and Prettier configurations for Node.js and TypeScript projects",
   "keywords": [
     "typescript",
