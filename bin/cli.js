@@ -1068,7 +1068,7 @@ const program =
   new Command();
 
 program
-  .name('ts-config')
+  .name('ts-prettier-config')
   .description(
     'Org Utils TypeScript, ESLint and Prettier configuration CLI',
   )
@@ -1223,31 +1223,31 @@ Presets:
 
 Examples:
 
-  npx ts-config init --all
+  npx ts-prettier-config init --all
 
-  npx ts-config init typescript
+  npx ts-prettier-config init typescript
 
-  npx ts-config init typescript --preset node
+  npx ts-prettier-config init typescript --preset node
 
-  npx ts-config init typescript --preset library
+  npx ts-prettier-config init typescript --preset library
 
-  npx ts-config init typescript --preset bundler
+  npx ts-prettier-config init typescript --preset bundler
 
-  npx ts-config init prettier
+  npx ts-prettier-config init prettier
 
-  npx ts-config init prettier --sort-imports
+  npx ts-prettier-config init prettier --sort-imports
 
-  npx ts-config init eslint
+  npx ts-prettier-config init eslint
 
-  npx ts-config init eslint --preset strict
+  npx ts-prettier-config init eslint --preset strict
 
-  npx ts-config init --all --preset node
+  npx ts-prettier-config init --all --preset node
 
-  npx ts-config init --all --preset library
+  npx ts-prettier-config init --all --preset library
 
-  npx ts-config init --all --preset bundler
+  npx ts-prettier-config init --all --preset bundler
 
-  npx ts-config init --all --force
+  npx ts-prettier-config init --all --force
 `);
   });
 

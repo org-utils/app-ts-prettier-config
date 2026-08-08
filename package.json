@@ -80,7 +80,7 @@
     "jsonc-parser": "^3.3.1"
   },
   "bin": {
-    "ts-config": "./bin/cli.js"
+    "ts-prettier-config": "./bin/cli.js"
   },
   "scripts": {
     "test": "node --test",
