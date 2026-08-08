@@ -73,6 +73,10 @@ const PRESETS = {
     typescript: 'node',
     eslint: 'node',
   },
+  bundler: {
+    typescript: 'bundler',
+    eslint: 'node',
+  },
 
   library: {
     typescript: 'library',
@@ -684,7 +688,7 @@ program
   )
   .option(
     '--preset <preset>',
-    'Configuration preset: node, library, strict',
+    'Configuration preset: node, bundler, library, strict',
   )
   .option(
     '--sort-imports',
@@ -783,6 +787,8 @@ Examples:
   npx ts-config init --all
 
   npx ts-config init typescript
+
+  npx ts-config init typescript --preset bundler
 
   npx ts-config init prettier
 
